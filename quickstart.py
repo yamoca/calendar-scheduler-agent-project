@@ -110,6 +110,6 @@ def gmail_send_message(client, message_text):
 
 
 if __name__ == "__main__":
-  gmail_client = create_gmail_api_client()
+  gmail_client = ClientSingleton.get_instance()
   test = gmail_send_message(client=gmail_client)
   print(test)
