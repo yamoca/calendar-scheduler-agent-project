@@ -3,6 +3,10 @@ from dotenv import load_dotenv
 import os
 import json
 
+from quickstart import *
+
+gmail_client = create_gmail_api_client()
+
 load_dotenv()
 
 API_KEY = os.getenv('API_KEY')
@@ -16,7 +20,7 @@ client = OpenAI(
 )
 
 
-task = "send a polite greeting email"
+task = "send a polite greeting email with a simple message of your choice. Everything apart from the message body is handled for you, so dont worry about the recipient, subject, etc"
 
 messages = [
   {
@@ -28,10 +32,6 @@ messages = [
     "content": task,
   }
 ]
-
-def send_email(message_text):
-  print("function accessed: ", message_text)
-  return "email sent!" 
 
 
 tools = [{
@@ -53,7 +53,7 @@ tools = [{
 }]
 
 TOOL_MAPPING = {
-    "send_email": send_email
+    "send_email": gmail_send_message
 }
 
 request_1 = {
@@ -79,7 +79,7 @@ for tool_call in response_1.tool_calls:
     '''
     tool_name = tool_call.function.name
     tool_args = json.loads(tool_call.function.arguments)
-    tool_response = TOOL_MAPPING[tool_name](**tool_args)
+    tool_response = TOOL_MAPPING[tool_name](**tool_args, client=gmail_client)
     messages.append({
       "role": "tool",
       "tool_call_id": tool_call.id,
