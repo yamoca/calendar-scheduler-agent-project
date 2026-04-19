@@ -56,7 +56,7 @@ def create_gmail_api_client():
   creds = get_credentials()
   return build("gmail", "v1", credentials=creds)
 
-def gmail_send_message(client):
+def gmail_send_message(client, message_text):
   """Create and send an email message
   Print the returned  message id
   Returns: Message object, including message id
@@ -65,11 +65,11 @@ def gmail_send_message(client):
   try:
     message = EmailMessage()
 
-    message.set_content(f"test {random.randint(1, 10)}")
+    message.set_content(message_text)
 
     message["To"] = RECIPIENT 
     message["From"] = "test" # doesnt matter what you put in here it will just treat it as sent from whoevers email logged into api
-    message["Subject"] = "Automated draft"
+    message["Subject"] = "Sent by an ai"
 
     # encoded message
     encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
