@@ -1,3 +1,6 @@
+# log to stderr rather than stdio cause might interfere 
+import sys
+
 # mcp
 from mcp.server.fastmcp import FastMCP
 
@@ -80,6 +83,14 @@ class ClientSingleton:
         return build("gmail", "v1", credentials=credentials) 
 
 
+import time
+@mcp.tool()
+async def add(a: int, b: int) -> int:
+   time.sleep(1)
+   return(a+b)
+
+
+# not async because gmail api client not async too old or smth
 @mcp.tool()
 def gmail_send_message(message_text: str):
     """Create and send an email message
@@ -110,7 +121,7 @@ def gmail_send_message(message_text: str):
             .send(userId="me", body=create_message)
             .execute()
         )
-        print(f'Message Id: {send_message["id"]}')
+        # print(f'Message Id: {send_message["id"]}', file=sys.stderr)
         return {"status": "success", "message_id": send_message["id"]}
 
     except HttpError as error:
