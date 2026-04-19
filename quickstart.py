@@ -1,6 +1,5 @@
 import os.path
 import base64
-import random
 from dotenv import load_dotenv
 
 from google.auth.transport.requests import Request
@@ -11,6 +10,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from email.message import EmailMessage
+
 
 
 load_dotenv()
@@ -52,9 +52,25 @@ def get_credentials():
   return creds
 
 
-def create_gmail_api_client():
-  creds = get_credentials()
-  return build("gmail", "v1", credentials=creds)
+# make sure to only have one gmail client at a time
+class ClientSingleton:
+    """Singleton for managing the client instance."""
+    _instance = None
+
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            credentials = get_credentials()
+            cls._instance = cls._initialize_client(credentials)
+        return cls._instance
+
+    @staticmethod
+    def _initialize_client(credentials):
+        """Initialize the client with the given credentials."""
+        # Example: Replace with actual client initialization logic
+        return build("gmail", "v1", credentials=credentials) 
+
+
 
 def gmail_send_message(client, message_text):
   """Create and send an email message
