@@ -35,6 +35,8 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.
 
 mcp = FastMCP("demo")
 
+# agent will only ingest emails from allowed senders
+allowed_senders = ["leojwgulliver@gmail.com", "ljgulliver256@gmail.com"]
 
 
 def get_credentials():
@@ -83,13 +85,6 @@ class ClientSingleton:
         return build("gmail", "v1", credentials=credentials) 
 
 
-import time
-@mcp.tool()
-async def add(a: int, b: int) -> int:
-   time.sleep(1)
-   return(a+b)
-
-
 # not async because gmail api client not async too old or smth
 @mcp.tool()
 def gmail_send_message(message_text: str):
@@ -128,5 +123,25 @@ def gmail_send_message(message_text: str):
         return {"status": "error", "error": str(error)}
 
 
+@mcp.tool()
+def gmail_read_message():
+    # make sure to label read messages so ai doesnt loop
+    client = ClientSingleton.get_instance()
+
+    # build query
+    query = f"from:({" OR ".join(allowed_senders)})"
+
+    results = client.users().messages().list(userId="me", labelIds=["INBOX", "UNREAD"], q=query).execute()
+
+    messages = results.get("messages", "error: no messages found")
+    firstmessage = messages[0]
+    email1 = client.users().messages().get(userId="me", id=firstmessage["id"]).execute()
+    print(email1)
+    print(email1["snippet"])
+    headers = email1["payload"]["headers"]
+    sender = next((header["value"] for header in headers if header["name"] == "From"), "Unkown")
+    print(sender)
+
 if __name__ == "__main__":
-    mcp.run()
+    # mcp.run()
+    gmail_read_message()
