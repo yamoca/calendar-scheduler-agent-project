@@ -133,9 +133,9 @@ def gmail_get_messages():
 
     results = client.users().messages().list(userId="me", labelIds=["INBOX", "UNREAD"], q=query).execute()
     messages = results.get("messages", "error: no messages found")
-    firstmessage = messages[0]
-    email1 = client.users().messages().get(userId="me", id=firstmessage["id"]).execute()
-    return
+    # firstmessage = messages[0]
+    # email1 = client.users().messages().get(userId="me", id=firstmessage["id"]).execute()
+    return messages
     # print(email1)
     # print(email1["snippet"])
     # headers = email1["payload"]["headers"]
@@ -143,9 +143,13 @@ def gmail_get_messages():
     # print(sender)
 
 
-def gmail_get_message_by_id(int: id):
-    pass
+def gmail_get_message_by_id(str: id):
+    client = ClientSingleton.get_instance()
+    result = client.users().messages().get(userId="me", id="19dac5c35c06d233", format="full").execute()
+    body = result.get("snippet")
+    print(body)
+
 
 if __name__ == "__main__":
-    mcp.run()
-    # gmail_get_messages()
+    # mcp.run()
+    gmail_get_message_by_id("19dac5c35c06d233")

@@ -27,8 +27,8 @@ if not os.getenv("OPENROUTER_API_KEY"):
 
 
 class EmailClassification(TypedDict):
-    intent: Literal["question", "bug", "billing", "feature", "complex"]
     urgency: Literal["low", "medium", "high", "critical"]
+    tone: Literal["casual", "neutral", "professional", "formal"]
     topic: str
     summary: str
 
@@ -41,10 +41,6 @@ class EmailAgentState(TypedDict):
 
     # classification result
     classification: EmailClassification | None
-
-    # raw search/api results
-    search_results: list[str] | None # list of raw document chunks
-    customer_history: dict | None # raw customer data from crm
 
     # generated content
     draft_response: str | None
@@ -84,7 +80,7 @@ async def read_email(state: EmailAgentState, tools: dict) -> dict:
             "message": [HumanMessage(content=f"processing email: {state["email_content"]}")]
         }
 
-    NAME_OF_TOOL_IN_MCP_SERVER = "gmail_get_messages"
+    NAME_OF_TOOL_IN_MCP_SERVER = "gmail_get_message_by_id"
     get_email_tool = tools.get(NAME_OF_TOOL_IN_MCP_SERVER)
     if not get_email_tool:
         raise ValueError("MCP tool 'get_email' not found. check mcp_server.py for correct tool name")
@@ -93,10 +89,10 @@ async def read_email(state: EmailAgentState, tools: dict) -> dict:
 
     return {
         "email_content": raw.get("body", ""),
-        # can probably remove this later becuse i dont care about sender_email, should be handled by mcp server
+        # fallback in getting it from state is only for testing where state is prepopulated 
         "sender_email": raw.get("from", state.get("sender_email", "")),
-        # not sure what this is
-        "messages": [HumanMessage(content=f"Fetched email: {raw.get("body", "")[:100]}")]
+        # this is for logging but bit goof that its counted as a HumanMessage 
+        "messages": [HumanMessage(content=f"Fetched email from {raw.get("from")}: {raw.get("body", "")[:100]}")]
     }
 
 def classify_intent(state: EmailAgentState) -> Command[Literal["draft_response"]]:
@@ -113,7 +109,7 @@ def classify_intent(state: EmailAgentState) -> Command[Literal["draft_response"]
     Email: {state['email_content']}
     From: {state['sender_email']}
 
-    Provide classification including intent, urgency, topic, and summary.
+    Provide classification including urgency, tone, topic, and summary.
     """
 
     # get structured response directly as dict
@@ -124,7 +120,7 @@ def classify_intent(state: EmailAgentState) -> Command[Literal["draft_response"]
     #store classification as a single dict in state
     return Command(
         update={"classification": classification},
-        goto=draft_response
+        goto="draft_response"
     )
 
 
@@ -137,17 +133,23 @@ def draft_response(state: EmailAgentState) -> Command[Literal["send_reply"]]:
     classification = state.get("classification", {})
 
     # build the prompt with formatted context
+    # WILL HAVE TO CHANGE WHEN ADDING CALENDAR INTEGRATIONS BECAUSE OF MEETING GUIDELINES
     draft_prompt = f"""
-    Draft a response to this customer email:
+    Draft a response to this incoming email which has been flagged as relating to meeting up:
     {state['email_content']}
 
-    Email intent: {classification.get("intent", "unkown")}
+    Email tone: {classification.get("tone", "neutral")}
     Urgency level: {classification.get("urgency", "medium")}
 
     Guidelines:
-    - Be professional and helpful
-    - Be direct and clear, providing exact proposed meetup times
+    - Write the email in the correct tone as provided 
+    - Be direct and clear
+    - if a meetup time is already arranged, agree to it
+    - if a meetup window is proposed, choose a time within the proposed window
+    - if no meetup window is proposed, choose any sensible time 
+    - if details are vague, send a clarification email
     - use the provided context
+    - reply ONLY with the generated email body, your response will go directly into the email to be seen by the end recipients
     """
 
     response = llm.invoke(draft_prompt)
@@ -214,13 +216,15 @@ async def build_graph_and_run():
         memory = MemorySaver()
         app = workflow.compile(checkpointer=memory)
 
-        await test_run(app) 
+        # start with empty initial state, can prepoluate for testing see commented out initial statevar line 248
+        initial_state = {}
+        await monitor_inbox(app, tools, initial_state)
 
 
 
 
 # build inbox monitoring loop
-async def monitor_inbox(app, tools, config_base):
+async def monitor_inbox(app, tools, initial_state):
     seen_ids = set()
 
     while True:
@@ -228,10 +232,10 @@ async def monitor_inbox(app, tools, config_base):
 
         # fetch inbox
         get_mesages_tool = tools.get("gmail_get_messages")
-        result = await get_mesages_tool.ainvoke({})
+        messages = await get_mesages_tool.ainvoke({})
 
         # process unseen emails
-        for message in result.get("messages", []):
+        for message in messages:
             email_id = message["id"]
             if email_id in seen_ids:
                 continue
@@ -241,17 +245,20 @@ async def monitor_inbox(app, tools, config_base):
             #each email gets its own thread_id for independant state / checkpointing so if one needs a human intevention, others can keep running
             config = {"configurable": {"thread_id": email_id}}
 
-            initial_state = {
-                "email_content": "I was charged twice for my subscription! This is urgent!",
-                "sender_email": "customer@example.com",
-                "email_id": "email_123",
-                "classification": None,
-                "draft_response": None,
-                "messages": []
-            }
+            # initial_state = {
+            #     "email_content": "hey lets meet up at 5pm tomorrow",
+            #     "sender_email": "john@example.com",
+            #     "email_id": "email_123",
+            #     "classification": None,
+            #     "draft_response": None,
+            #     "messages": []
+            # }
 
             print(f"processing email {email_id}", file=sys.stderr)
             result = await app.ainvoke(initial_state, config) 
+            print(f"result: {result}", file=sys.stderr)
+            print(f"messages: {initial_state.get("messages", "no messages found")}", file=sys.stderr)
+
 
         await asyncio.sleep(60) # check inbox every minute
 

@@ -314,7 +314,7 @@ async def test_run(app):
     result = await app.ainvoke(initial_state, config)
     print(f"human review interrupt:{result['__interrupt__']}")
 
-    # # simulate human approving draft
+    # simulate human approving draft
     # human_response = Command(
     #     resume={
     #         "approved": True,
@@ -322,7 +322,7 @@ async def test_run(app):
     #     }
     # )
 
-    # # Resume execution
+    # Resume execution
     # final_result = await app.ainvoke(human_response, config)
     # print(f"Email sent successfully!")
     # print(f"Done. Final state keys:", list(final_result.keys()))
