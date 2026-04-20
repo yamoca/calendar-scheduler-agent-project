@@ -13,6 +13,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 
 import asyncio
 
+import json
 import os
 import sys
 from dotenv import load_dotenv
@@ -58,7 +59,9 @@ mcp_client = MultiServerMCPClient(
     }
 )
 
-MODEL = "nvidia/nemotron-nano-12b-v2-vl:free"
+# if it breaks on changing model dont worry necessarily because of tool call error rate 
+# and structured output error rate
+MODEL = "openai/gpt-oss-20b:free"
 
 llm = ChatOpenRouter(model=MODEL)
 
@@ -85,14 +88,26 @@ async def read_email(state: EmailAgentState, tools: dict) -> dict:
     if not get_email_tool:
         raise ValueError("MCP tool 'get_email' not found. check mcp_server.py for correct tool name")
 
+    # raw = await get_email_tool.ainvoke({"email_id": state["email_id"]})
+
+    # goofy json unpacking see monitor inbox for deeper explanation
+    # parsed_email = []
+    # for block in raw:
+    #     if block.get("type") == "text":
+    #         parsed = json.loads(block["text"])
+    #         parsed_email.append(parsed)
+
+    # or just do email = await get_email_tool.a
     raw = await get_email_tool.ainvoke({"email_id": state["email_id"]})
+    parsed_email = json.loads(raw[0]["text"])
+    print(f"parsed email: {parsed_email}")
 
     return {
-        "email_content": raw.get("body", ""),
+        "email_content": parsed_email.get("body", ""),
         # fallback in getting it from state is only for testing where state is prepopulated 
-        "sender_email": raw.get("from", state.get("sender_email", "")),
+        "sender_email": parsed_email.get("from", state.get("sender_email", "")),
         # this is for logging but bit goof that its counted as a HumanMessage 
-        "messages": [HumanMessage(content=f"Fetched email from {raw.get("from")}: {raw.get("body", "")[:100]}")]
+        "messages": [HumanMessage(content=f"Fetched email from {parsed_email.get("from")}: {parsed_email.get("body", "")[:100]}")]
     }
 
 def classify_intent(state: EmailAgentState) -> Command[Literal["draft_response"]]:
@@ -114,7 +129,7 @@ def classify_intent(state: EmailAgentState) -> Command[Literal["draft_response"]
 
     # get structured response directly as dict
     classification = structured_llm.invoke(classification_prompt)
-
+    print(f"classification result: {classification}", file=sys.stderr)
     
 
     #store classification as a single dict in state
@@ -140,6 +155,10 @@ def draft_response(state: EmailAgentState) -> Command[Literal["send_reply"]]:
 
     Email tone: {classification.get("tone", "neutral")}
     Urgency level: {classification.get("urgency", "medium")}
+    my name: leo
+    person to address email to: {state.get("sender_email")}
+
+
 
     Guidelines:
     - Write the email in the correct tone as provided 
@@ -150,6 +169,10 @@ def draft_response(state: EmailAgentState) -> Command[Literal["send_reply"]]:
     - if details are vague, send a clarification email
     - use the provided context
     - reply ONLY with the generated email body, your response will go directly into the email to be seen by the end recipients
+    - you DO NOT need to add a subject
+    - DO NOT put in placeholder variables such as [name] as this response will be DIRECTLY sent as an email with no changes
+    - start with a greeting to the person with email {state.get("sender_email")} in an appropriate tone
+    - end with a suitable ending with my name, Leo
     """
 
     response = llm.invoke(draft_prompt)
@@ -203,7 +226,10 @@ async def build_graph_and_run():
         workflow = StateGraph(EmailAgentState)
 
         workflow.add_node("read_email", read_email_node)
-        workflow.add_node("classify_intent", classify_intent)
+
+        # breaks quite a lot because of bad structured output error rate on certain models i think
+        workflow.add_node("classify_intent", classify_intent, retry=RetryPolicy(max_attempts=3, initial_interval=2.0))
+
         workflow.add_node("draft_response", draft_response)
         workflow.add_node("send_reply", send_reply_node)
 
@@ -232,8 +258,18 @@ async def monitor_inbox(app, tools, initial_state):
 
         # fetch inbox
         get_mesages_tool = tools.get("gmail_get_messages")
-        messages = await get_mesages_tool.ainvoke({})
+        raw = await get_mesages_tool.ainvoke({})
+        # basically while mcp server returns a list of dictionaries
+        # when we call the tool, it returns a langchain tool type which has extra stuff we dont care about like tracking that adds to the json
+        # deserialise / get the bit we want 
+        # pretty sure this is smth to do with structure output or smth idk need to research
+        messages = []
+        for block in raw:
+            if block.get("type") == "text":
+                parsed = json.loads(block["text"])
+                messages.append(parsed)
 
+        print(messages)
         # process unseen emails
         for message in messages:
             email_id = message["id"]
@@ -253,6 +289,9 @@ async def monitor_inbox(app, tools, initial_state):
             #     "draft_response": None,
             #     "messages": []
             # }
+
+            # load email_id into initial state so agent can find out all other information (by using get_email with the email id)
+            initial_state["email_id"] = email_id
 
             print(f"processing email {email_id}", file=sys.stderr)
             result = await app.ainvoke(initial_state, config) 

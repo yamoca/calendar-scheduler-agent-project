@@ -1,6 +1,8 @@
 # log to stderr rather than stdio cause might interfere 
 import sys
 
+import re
+
 # mcp
 from mcp.server.fastmcp import FastMCP
 
@@ -131,8 +133,8 @@ def gmail_get_messages():
     # build query
     query = f"from:({" OR ".join(allowed_senders)}) after:2026/01/01"
 
-    results = client.users().messages().list(userId="me", labelIds=["INBOX", "UNREAD"], q=query).execute()
-    messages = results.get("messages", "error: no messages found")
+    results = client.users().messages().list(userId="me", labelIds=["INBOX", "UNREAD"], q=query, maxResults=5).execute()
+    messages = results.get("messages", [])
     # firstmessage = messages[0]
     # email1 = client.users().messages().get(userId="me", id=firstmessage["id"]).execute()
     return messages
@@ -143,13 +145,36 @@ def gmail_get_messages():
     # print(sender)
 
 
-def gmail_get_message_by_id(str: id):
+@mcp.tool()
+def gmail_get_message_by_id(email_id: str):
     client = ClientSingleton.get_instance()
-    result = client.users().messages().get(userId="me", id="19dac5c35c06d233", format="full").execute()
+    result = client.users().messages().get(userId="me", id=email_id, format="full").execute()
+
     body = result.get("snippet")
-    print(body)
+    # print(body)
+
+    headers = result["payload"]["headers"]
+    sender_address_and_name = next(header["value"] for header in headers if header["name"] == "From")
+    match = re.search(r"<(.*)>", sender_address_and_name)
+    if match:
+       sender_address = match.group(1)
+    else:
+       sender_address = sender_address_and_name
+
+    # print(sender_address)
+
+    return {
+       "body": body,
+       "from": sender_address
+    }
+
+    
 
 
 if __name__ == "__main__":
-    # mcp.run()
-    gmail_get_message_by_id("19dac5c35c06d233")
+    mcp.run()
+    # print(gmail_get_message_by_id("19dac5c35c06d233"))
+    # messages = (gmail_get_messages())
+    # print(messages)
+    # for message in messages:
+    #    print(message["id"])
