@@ -99,7 +99,7 @@ async def read_email(state: EmailAgentState, tools: dict) -> dict:
         "messages": [HumanMessage(content=f"Fetched email: {raw.get("body", "")[:100]}")]
     }
 
-def classify_intent(state: EmailAgentState) -> Command[Literal["human_review", "draft_response"]]:
+def classify_intent(state: EmailAgentState) -> Command[Literal["draft_response"]]:
     print("entered classify intent node", file=sys.stderr)
     """Use LLM to classify email intent and urgency, then route accordingly"""
 
@@ -119,22 +119,18 @@ def classify_intent(state: EmailAgentState) -> Command[Literal["human_review", "
     # get structured response directly as dict
     classification = structured_llm.invoke(classification_prompt)
 
-    # determine next node based on classification
-    if classification['intent'] == 'billing' or classification['urgency'] == 'critical':
-        goto = "human_review"
-    else:
-        goto = "draft_response"
+    
 
     #store classification as a single dict in state
     return Command(
         update={"classification": classification},
-        goto=goto
+        goto=draft_response
     )
 
 
 
 
-def draft_response(state: EmailAgentState) -> Command[Literal["human_review", "send_reply"]]:
+def draft_response(state: EmailAgentState) -> Command[Literal["send_reply"]]:
     print("entered draft response node", file=sys.stderr)
     """generate response useing context and route based on quality"""
 
@@ -156,13 +152,8 @@ def draft_response(state: EmailAgentState) -> Command[Literal["human_review", "s
 
     response = llm.invoke(draft_prompt)
 
-    needs_review = (
-        classification.get("urgency") in ["high", "critical"] or
-        classification.get("intent") == "complex"
-    )
-
     # route to appropriate next node
-    goto = "human_review" if needs_review else "send_reply"
+    goto = "send_reply" 
 
     return Command(
         update={"draft_response": response.content},
@@ -170,31 +161,6 @@ def draft_response(state: EmailAgentState) -> Command[Literal["human_review", "s
     )
 
 
-def human_review(state: EmailAgentState) -> Command[Literal["send_reply", END]]: # type: ignore
-    print("entered human review node", file=sys.stderr)
-    """pause for human review using interrupt and route based on decision"""
-
-    classification = state.get("classification", {})
-
-    # interrupt() must come first - any code before it will re-run on resume
-    human_decision = interrupt({
-        "email_id": state.get('email_id',''),
-        "original_email": state.get('email_content',''),
-        "draft_response": state.get('draft_response',''),
-        "urgency": classification.get('urgency'),
-        "intent": classification.get('intent'),
-        "action": "Please review and approve/edit this response"
-    })
-
-    # process human decision
-    if human_decision.get("approved"):
-        return Command(
-            update={"draft_response": human_decision.get("edited_response", state.get("draft_response"))},
-            goto="send_reply"
-        )
-    else:
-        # rejection means human will handle directly:
-        return Command(update={}, goto=END)
     
 
 async def send_reply(state: EmailAgentState, tools: dict) -> dict:
@@ -237,7 +203,6 @@ async def build_graph_and_run():
         workflow.add_node("read_email", read_email_node)
         workflow.add_node("classify_intent", classify_intent)
         workflow.add_node("draft_response", draft_response)
-        workflow.add_node("human_review", human_review)
         workflow.add_node("send_reply", send_reply_node)
 
         # add only the fixed edges as routing is mainly handled by nodes themselves (goto___)
@@ -310,22 +275,10 @@ async def test_run(app):
     # Run with a thread_id for persistence
     config = {"configurable": {"thread_id": "customer_123"}}
 
-    # The graph will pause at human_review
     result = await app.ainvoke(initial_state, config)
-    print(f"human review interrupt:{result['__interrupt__']}")
 
-    # # simulate human approving draft
-    # human_response = Command(
-    #     resume={
-    #         "approved": True,
-    #         "edited_response": "We sincerely apologize for the double charge. I've initiated an immediate refund..."
-    #     }
-    # )
-
-    # # Resume execution
-    # final_result = await app.ainvoke(human_response, config)
-    # print(f"Email sent successfully!")
-    # print(f"Done. Final state keys:", list(final_result.keys()))
+    print(f"Email sent successfully!")
+    print(f"Done. Final state keys:", list(result.keys()))
 
 
 if __name__ == "__main__":
