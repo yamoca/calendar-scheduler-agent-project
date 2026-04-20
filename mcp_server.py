@@ -124,24 +124,28 @@ def gmail_send_message(message_text: str):
 
 
 @mcp.tool()
-def gmail_read_message():
+def gmail_get_messages():
     # make sure to label read messages so ai doesnt loop
     client = ClientSingleton.get_instance()
 
     # build query
-    query = f"from:({" OR ".join(allowed_senders)})"
+    query = f"from:({" OR ".join(allowed_senders)}) after:2026/01/01"
 
     results = client.users().messages().list(userId="me", labelIds=["INBOX", "UNREAD"], q=query).execute()
-
     messages = results.get("messages", "error: no messages found")
     firstmessage = messages[0]
     email1 = client.users().messages().get(userId="me", id=firstmessage["id"]).execute()
-    print(email1)
-    print(email1["snippet"])
-    headers = email1["payload"]["headers"]
-    sender = next((header["value"] for header in headers if header["name"] == "From"), "Unkown")
-    print(sender)
+    return
+    # print(email1)
+    # print(email1["snippet"])
+    # headers = email1["payload"]["headers"]
+    # sender = next((header["value"] for header in headers if header["name"] == "From"), "Unkown")
+    # print(sender)
+
+
+def gmail_get_message_by_id(int: id):
+    pass
 
 if __name__ == "__main__":
-    # mcp.run()
-    gmail_read_message()
+    mcp.run()
+    # gmail_get_messages()
