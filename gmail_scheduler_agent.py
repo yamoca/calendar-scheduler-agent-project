@@ -141,7 +141,7 @@ def classify_intent(state: EmailAgentState) -> Command[Literal["draft_response"]
 
 
 
-def draft_response(state: EmailAgentState) -> Command[Literal["send_reply"]]:
+def draft_response(state: EmailAgentState) -> Command[Literal["send_reply", "human_review"]]:
     print("entered draft response node", file=sys.stderr)
     """generate response useing context and route based on quality"""
 
@@ -177,8 +177,13 @@ def draft_response(state: EmailAgentState) -> Command[Literal["send_reply"]]:
 
     response = llm.invoke(draft_prompt)
 
-    # route to appropriate next node
-    goto = "send_reply" 
+    # check urgency level to see if human review is required
+    needs_review = classification.get("urgency") in ["high", "critical"]
+
+    if needs_review:
+        goto = "human_review"
+    else:
+        goto = "send_reply"
 
     return Command(
         update={"draft_response": response.content},
@@ -186,7 +191,28 @@ def draft_response(state: EmailAgentState) -> Command[Literal["send_reply"]]:
     )
 
 
-    
+
+def human_review(state: EmailAgentState) -> Command[Literal["send_reply", END]]: 
+    print("entered human interrupt node", file=sys.stderr)
+    classification = state.get("classification", {})
+
+    human_decision = interrupt({
+        "email_id": state.get("email_id", ""),
+        "original_email": state.get('email_content',''),
+        "draft_response": state.get('draft_response',''),
+        "urgency": classification.get('urgency'),
+        "tone": classification.get('tone'),
+        "action": "This was marked as an urgent or complex request. Please review and approve/edit this response",
+    })
+
+    if human_decision.get("approved"):
+        return Command(
+            update={"draft_response": human_decision.get("edited_response", state.get("draft_response", ""))},
+            goto="send_reply"
+        )
+    else:
+        # rejection means human will directly handle
+        return Command(update={}, goto=END)
 
 async def send_reply(state: EmailAgentState, tools: dict) -> dict:
     print("entered send reply node", file=sys.stderr)
@@ -228,6 +254,8 @@ async def build_graph_and_run():
 
         # breaks quite a lot because of bad structured output error rate on certain models i think
         workflow.add_node("classify_intent", classify_intent, retry=RetryPolicy(max_attempts=3, initial_interval=2.0))
+
+        workflow.add_node("human_review", human_review)
 
         workflow.add_node("draft_response", draft_response)
         workflow.add_node("send_reply", send_reply_node)
@@ -283,8 +311,29 @@ async def monitor_inbox(app, tools, initial_state):
 
             print(f"processing email {email_id}", file=sys.stderr)
             result = await app.ainvoke(initial_state, config) 
+
+            # handle interrupts thru cli
+            if result.get("__interrupt__"):
+                interrupt_data = result["__interrupt__"][0].value
+                print("\n--- HUMAN REVIEW REQUIRED ---", file=sys.stderr)
+                print(f"Email: {interrupt_data['original_email']}", file=sys.stderr)
+                print(f"Draft: {interrupt_data['draft_response']}", file=sys.stderr)
+
+                decision = input("\nApprove review and continue to finalise draft? (y/n): ").strip().lower()
+
+                if decision == "y":
+                    edited = input("Edit response or press Enter to use draft: ").strip()
+                    human_response = Command(resume={
+                        "approved": True,
+                        "edited_response": edited if edited else interrupt_data["draft_response"]
+                    })
+                else:
+                    human_response = Command(resume={"approved": False})
+
+                # resume the specific email's thread
+                await app.ainvoke(human_response, config)                
+
             print(f"result: {result}", file=sys.stderr)
-            print(f"messages: {initial_state.get("messages", "no messages found")}", file=sys.stderr)
 
 
         await asyncio.sleep(60) # check inbox every minute
