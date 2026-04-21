@@ -222,7 +222,6 @@ async def build_graph_and_run():
         async def send_reply_node(state):
             return await send_reply(state, tools)
 
-        # build the graph
         workflow = StateGraph(EmailAgentState)
 
         workflow.add_node("read_email", read_email_node)
@@ -238,7 +237,6 @@ async def build_graph_and_run():
         workflow.add_edge("read_email", "classify_intent")
         workflow.add_edge("send_reply", END)
 
-        # compile with checkpointer for persistence in case run graph with local_server -> please compile without checkpointer
         memory = MemorySaver()
         app = workflow.compile(checkpointer=memory)
 
@@ -249,14 +247,12 @@ async def build_graph_and_run():
 
 
 
-# build inbox monitoring loop
 async def monitor_inbox(app, tools, initial_state):
     seen_ids = set()
 
     while True:
         print("checking inbox..", file=sys.stderr)
 
-        # fetch inbox
         get_mesages_tool = tools.get("gmail_get_messages")
         raw = await get_mesages_tool.ainvoke({})
         # basically while mcp server returns a list of dictionaries
@@ -281,14 +277,6 @@ async def monitor_inbox(app, tools, initial_state):
             #each email gets its own thread_id for independant state / checkpointing so if one needs a human intevention, others can keep running
             config = {"configurable": {"thread_id": email_id}}
 
-            # initial_state = {
-            #     "email_content": "hey lets meet up at 5pm tomorrow",
-            #     "sender_email": "john@example.com",
-            #     "email_id": "email_123",
-            #     "classification": None,
-            #     "draft_response": None,
-            #     "messages": []
-            # }
 
             # load email_id into initial state so agent can find out all other information (by using get_email with the email id)
             initial_state["email_id"] = email_id

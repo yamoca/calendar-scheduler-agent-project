@@ -2,4 +2,4 @@
 credentials.json
 token.json
 notes.md
-__pycache__/
+__pycache__/*

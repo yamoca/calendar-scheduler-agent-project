@@ -1,16 +1,24 @@
 # Calendar Scheduler
 
 ## Goal
-learn the basics of ai agents and the associated tools and frameworks by diving in with a real world project
-
-## Outline
-- monitor emails from certain people and identify key phrases like "lets play golf"
-- check google calendar for availability
-- send email with reply to meet at a proposed time along with a calendar link
+Build an agentic email assistant that monitors a Gmail inbox, classifies incoming meeting requests and drafts contextually appropriate responses - built with LangGraph, Openrouter, and a custom MCP server.
 
 
+## Current Features
+- monitor emails from specific senders to identify meeting requests
+- draft suitable response, mirroring language and tone of original email
+- send response via gmail api from custom mcp server
 
 
-#####  Dev Thoughts
-- create draft rather than send email, final human interaction
-- tone control: certain people require formal, others relaxed. (extract tone from incoming email?)
+## Architecture Diagram
+![alt_text](/architecture-diagram.svg "Architecture Diagram")
+
+
+## Planned
+- add calendar integration:
+    - check google calendar for availability
+    - propose available time in response
+    - attach calendar link
+- draft rather than send responses for better human-in-the-loop control
+
+
