@@ -19,6 +19,4 @@ Build an agentic email assistant that monitors a Gmail inbox, classifies incomin
     - check google calendar for availability
     - propose available time in response
     - attach calendar link
-- draft rather than send responses for better human-in-the-loop control
-
 
