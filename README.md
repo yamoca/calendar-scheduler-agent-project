@@ -11,7 +11,7 @@ Build an agentic email assistant that monitors a Gmail inbox, classifies incomin
 
 
 ## Architecture Diagram
-![alt_text](/architecture-diagram.svg "Architecture Diagram")
+![alt_text](docs/architecture-diagram.svg "Architecture Diagram")
 
 
 ## Planned
