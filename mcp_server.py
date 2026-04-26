@@ -26,15 +26,17 @@ import base64
 from typing import Literal
 from functools import lru_cache
 
+from gmail_scheduler_agent import CalendarEvent
+
 # initialise sensitive variables
 load_dotenv()
 
-CRED_PATH = os.getenv("GOOGLE_CREDENTIAL_PATH")
+CRED_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH")
 TOKEN_PATH = os.getenv("GOOGLE_TOKEN_PATH")
 RECIPIENT = os.getenv("EMAIL_RECIPIENT")
 
 # If modifying these scopes, delete the file token.json (because a new one needs to be generated)
-SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.compose"]
+SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.compose", "https://www.googleapis.com/auth/calendar.events"]
 
 
 
@@ -42,6 +44,8 @@ mcp = FastMCP("demo")
 
 # agent will only ingest emails from allowed senders
 allowed_senders = ["leojwgulliver@gmail.com", "ljgulliver256@gmail.com"]
+
+
 
 
 def get_credentials():
@@ -82,12 +86,14 @@ fix is to place the try except in a with_client_retry function
 then from the mcp tools call the with client retry function with the desired action
 
 but keep it simple for now so just use this because creds probs wont expire while testing
+
+also apparently no auth errors happen on build so not needed anyway
 """
 @lru_cache(maxsize=2) # should only be getting gmail v1 and calendar v3
 def get_google_client(service: Literal["gmail", "calendar"], version: str):
     creds = get_credentials()
     try:
-       return build(service, version, creds)
+       return build(service, version, credentials=creds, cache_discovery=False)
     except: # auth error
        get_google_client.cache_clear()
        return get_google_client(service, version)
@@ -177,13 +183,44 @@ def gmail_get_message_by_id(email_id: str):
 
 
 
+def calendar_create_event(event: CalendarEvent):
+
+    client = get_google_client("calendar", "v3")    
+
+    attendees = [{"email": attendant} for attendant in event["attendees"]]
+    json_event = {
+        "summary": event["summary"],
+        "location": event["location"],
+        "description": event["description"],
+        "start": {
+           "dateTime": event["start"],
+        },
+        "end": {
+           "dateTime": event["end"],
+        },
+        "attendees": attendees
+    }
+
+    event = client.events().insert(calendarId="primary", body=json_event).execute()
+    print("event created: %s" % (event.get("htmlLink")))
   
 
 
 if __name__ == "__main__":
-    mcp.run()
-    # print(gmail_get_message_by_id("19dac5c35c06d233"))
-    # messages = (gmail_get_messages())
-    # print(messages)
-    # for message in messages:
-    #    print(message["id"])
+    # mcp.run()
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+    now = datetime.now(ZoneInfo("Europe/London"))
+    start_time = (now.replace(hour=10, minute=0, second=0, microsecond=0))
+    end_time = start_time + timedelta(hours=1)
+
+    testEvent = CalendarEvent(
+        summary="AI Agent Design Sync",
+        start=start_time.isoformat(),
+        end=end_time.isoformat(),
+        attendees=["lpage@example.com", "sbrin@example.com"],
+        location="London Office",
+        description="Discussion on MCP tools, client caching, and agent architecture."
+    )
+
+    calendar_create_event(testEvent)

@@ -34,6 +34,30 @@ class EmailClassification(TypedDict):
     summary: str
 
 
+
+""" 
+use dataclass or typeddict or pydantic basemodel??
+
+"""
+# @dataclass
+# class CalendarEvent:
+#     title: str
+#     start: str
+#     end: str
+#     attendees: List[str]
+#     location: Optional[str] = None
+#     description: Optional[str] = None
+
+# from dataclasses import dataclass
+
+class CalendarEvent(TypedDict):
+    summary: str
+    start: str
+    end: str
+    attendees: list[str]
+    location: str | None
+    description: str | None
+
 class EmailAgentState(TypedDict):
     # raw email data
     email_content: str
