@@ -23,6 +23,9 @@ from email.message import EmailMessage
 import os.path
 import base64
 
+from typing import Literal
+from functools import lru_cache
+
 # initialise sensitive variables
 load_dotenv()
 
@@ -69,22 +72,26 @@ def get_credentials():
   return creds
 
 
-# make sure to only have one gmail client at a time
-class ClientSingleton:
-    """Singleton for managing the client instance."""
-    _instance = None
 
-    @classmethod
-    def get_instance(cls):
-        if cls._instance is None:
-            credentials = get_credentials()
-            cls._instance = cls._initialize_client(credentials)
-        return cls._instance
 
-    @staticmethod
-    def _initialize_client(credentials):
-        """Initialize the client with the given credentials."""
-        return build("gmail", "v1", credentials=credentials) 
+"""
+the try except wont actually help with credential refreshs or anything 
+because once cached this function never evaluates again
+
+fix is to place the try except in a with_client_retry function 
+then from the mcp tools call the with client retry function with the desired action
+
+but keep it simple for now so just use this because creds probs wont expire while testing
+"""
+@lru_cache(maxsize=2) # should only be getting gmail v1 and calendar v3
+def get_google_client(service: Literal["gmail", "calendar"], version: str):
+    creds = get_credentials()
+    try:
+       return build(service, version, creds)
+    except: # auth error
+       get_google_client.cache_clear()
+       return get_google_client(service, version)
+       
 
 
 # not async because gmail api client not async too old or smth
@@ -95,7 +102,7 @@ def gmail_send_message(message_text: str):
     Returns: Message object, including message id
     """
 
-    client = ClientSingleton.get_instance()
+    client = get_google_client("gmail", "v1") 
 
     try:
         message = EmailMessage()
@@ -128,7 +135,7 @@ def gmail_send_message(message_text: str):
 @mcp.tool()
 def gmail_get_messages():
     # make sure to label read messages so ai doesnt loop
-    client = ClientSingleton.get_instance()
+    client = get_google_client("gmail", "v1") 
 
     # build query
     query = f"from:({" OR ".join(allowed_senders)}) after:2026/01/01"
@@ -147,7 +154,7 @@ def gmail_get_messages():
 
 @mcp.tool()
 def gmail_get_message_by_id(email_id: str):
-    client = ClientSingleton.get_instance()
+    client = get_google_client("gmail", "v1") 
     result = client.users().messages().get(userId="me", id=email_id, format="full").execute()
 
     body = result.get("snippet")
@@ -168,7 +175,9 @@ def gmail_get_message_by_id(email_id: str):
        "from": sender_address
     }
 
-    
+
+
+  
 
 
 if __name__ == "__main__":
